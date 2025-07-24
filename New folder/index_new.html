@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Flappy Bird</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="game-container">
+        <canvas id="gameCanvas"></canvas>
+        <div class="score-display">
+            <span id="currentScore">0</span> | <span id="highScore">0</span>
+        </div>
+        <div id="gameOver" class="game-over">
+            <h2>Game Over</h2>
+            <p>Score: <span id="finalScore">0</span></p>
+            <div class="medal-container" id="medalContainer"></div>
+            <button id="restartButton">Play Again</button>
+        </div>
+        <div id="startScreen" class="start-screen">
+            <h1>Flappy Bird</h1>
+            <p>Press Space/Up or Tap to Jump</p>
+            <button id="startButton">Start Game</button>
+        </div>
+    </div>
+
+    <!-- GameMonetize SDK -->
+    <script type="text/javascript">
+       window.SDK_OPTIONS = {
+          gameId: "your_game_id_here", // REPLACE THIS WITH YOUR GAME ID
+          onEvent: function (a) {
+             switch (a.name) {
+                case "SDK_GAME_PAUSE":
+                   if (gameRunning) {
+                      gameRunning = false;
+                      cancelAnimationFrame(animationId);
+                   }
+                   Object.values(sounds).forEach(sound => sound.muted = true);
+                   break;
+                case "SDK_GAME_START":
+                   if (!gameRunning && gameStarted) {
+                      gameRunning = true;
+                      gameLoop();
+                   }
+                   Object.values(sounds).forEach(sound => sound.muted = false);
+                   break;
+                case "SDK_READY":
+                   console.log("SDK Ready");
+                   break;
+             }
+          }
+       };
+       (function (a, b, c) {
+          var d = a.getElementsByTagName(b)[0];
+          a.getElementById(c) || (a = a.createElement(b), a.id = c, a.src = "https://api.gamemonetize.com/sdk.js", d.parentNode.insertBefore(a, d))
+       })(document, "script", "gamemonetize-sdk");
+    </script>
+
+    <script src="script.js"></script>
+</body>
+</html>

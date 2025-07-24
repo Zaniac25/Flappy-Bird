@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Flappy Bird</title>
+    
+    <!-- GameMonetize SDK -->
+    <script type="text/javascript">
+       window.SDK_OPTIONS = {
+          gameId: "your_game_id_here", // REPLACE THIS WITH YOUR GAME ID
+          onEvent: function (a) {
+             switch (a.name) {
+                case "SDK_GAME_PAUSE":
+                   if (gameRunning) {
+                      gameRunning = false;
+                      cancelAnimationFrame(animationId);
+                   }
+                   Object.values(sounds).forEach(sound => sound.muted = true);
+                   break;
+                case "SDK_GAME_START":
+                   if (!gameRunning && gameStarted) {
+                      gameRunning = true;
+                      gameLoop();
+                   }
+                   Object.values(sounds).forEach(sound => sound.muted = false);
+                   break;
+                case "SDK_READY":
+                   console.log("SDK Ready");
+                   break;
+             }
+          }
+       };
+       (function (a, b, c) {
+          var d = a.getElementsByTagName(b)[0];
+          a.getElementById(c) || (a = a.createElement(b), a.id = c, a.src = "https://api.gamemonetize.com/sdk.js", d.parentNode.insertBefore(a, d))
+       })(document, "script", "gamemonetize-sdk");
+    </script>
+    
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #222;
+            font-family: 'Arial', sans-serif;
+            touch-action: manipulation;
+            overflow: hidden;
+        }
+        
+        .game-container {
+            position: relative;
+            width: 100%;
+            max-width: 400px;
+            margin: 0 auto;
+            height: 600px;
+        }
+        
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            border: 2px solid #333;
+            background-color: #70c5ce;
+        }
+        
+        .game-over, .start-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            text-align: center;
+            z-index: 10;
+        }
+        
+        .game-over {
+            display: none;
+        }
+        
+        button {
+            padding: 12px 24px;
+            font-size: 18px;
+            background-color: #ff5a5f;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: all 0.2s;
+            z-index: 15;
+        }
+        
+        button:hover {
+            background-color: #ff3b40;
+        }
+        
+        button:active {
+            transform: scale(0.95);
+        }
+        
+        .score-display {
+            position: absolute;
+            top: 20px;
+            width: 100%;
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+            z-index: 5;
+        }
+        
+        .medal-container {
+            margin: 15px 0;
+        }
+        
+        .medal-container img {
+            width: 60px;
+            height: 60px;
+        }
+        
+        @media (max-width: 480px) {
+            .game-container {
+                height: 500px;
+            }
+            button {
+                padding: 10px 20px;
+                font-size: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <canvas id="gameCanvas"></canvas>
+        <div class="score-display">
+            <span id="currentScore">0</span> | <span id="highScore">0</span>
+        </div>
+        <div id="gameOver" class="game-over">
+            <h2>Game Over</h2>
+            <p>Score: <span id="finalScore">0</span></p>
+            <div class="medal-container" id="medalContainer"></div>
+            <button id="restartButton">Play Again</button>
+        </div>
+        <div id="startScreen" class="start-screen">
+            <h1>Flappy Bird</h1>
+            <p>Press Space/Up or Tap to Jump</p>
+            <button id="startButton">Start Game</button>
+        </div>
+    </div>
+
+    <script>
+        // Game elements
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const startScreen = document.getElementById('startScreen');
+        const gameOverScreen = document.getElementById('gameOver');
+        const startButton = document.getElementById('startButton');
+        const restartButton = document.getElementById('restartButton');
+        const finalScoreElement = document.getElementById('finalScore');
+        const currentScoreElement = document.getElementById('currentScore');
+        const highScoreElement = document.getElementById('highScore');
+        const medalContainer = document.getElementById('medalContainer');
+
+        // Game settings
+        const GRAVITY = 0.18;
+        const JUMP_FORCE = -5;
+        const BASE_PIPE_SPEED = 1.5;
+        const MAX_PIPE_SPEED = 3.5;
+        const SPEED_INCREASE_RATE = 0.002;
+        const PIPE_GAP = 220; // Increased from 200 (makes gap between top/bottom pipes larger)
+        const PIPE_WIDTH = 70; // Reduced from 80 (makes pipes narrower)
+        const PIPE_FREQUENCY = 1900; // Increased from 1500ms (pipes appear less frequently)
+        const GROUND_HEIGHT = 60;
+        const GRAVITY_DELAY = 30;
+
+        // Game state
+        let gameRunning = false;
+        let gameStarted = false;
+        let score = 0;
+        let highScore = localStorage.getItem('flappyHighScore') || 0;
+        let lastPipeTime = 0;
+        let animationId = null;
+        let groundOffset = 0;
+        let adCounter = 0;
+        let gravityDelayCounter = 0;
+        let currentPipeSpeed = BASE_PIPE_SPEED; // Current speed that increases over time
+
+        // Images with fallback colors
+        const images = {
+            bird: new Image(),
+            background: new Image(),
+            pipeTop: new Image(),
+            pipeBottom: new Image(),
+            ground: new Image(),
+            medalGold: new Image(),
+            medalSilver: new Image(),
+            medalBronze: new Image()
+        };
+
+        // Load images with error handling
+        function loadImage(img, src, fallbackColor) {
+            return new Promise((resolve) => {
+                img.onload = () => resolve(true);
+                img.onerror = () => {
+                    console.log(`Failed to load image: ${src}`);
+                    img.fallbackColor = fallbackColor;
+                    resolve(false);
+                };
+                img.src = src;
+            });
+        }
+
+        // Load all images
+        async function loadAllImages() {
+            await Promise.all([
+                loadImage(images.bird, 'https://iili.io/3bqPgkX.png', '#ffd700'),
+                loadImage(images.background, 'https://iili.io/3bFEgYg.png', '#70c5ce'),
+                loadImage(images.pipeTop, 'https://iili.io/3bBmEla.png', '#4CAF50'),
+                loadImage(images.pipeBottom, 'https://iili.io/3bBmEla.png', '#4CAF50'),
+                loadImage(images.ground, 'https://iili.io/3bqPU7t.png', '#8B4513'),
+                loadImage(images.medalGold, 'https://iili.io/JWZ5Jlu.png', null),
+                loadImage(images.medalSilver, 'https://iili.io/JWZ5YwI.png', null),
+                loadImage(images.medalBronze, 'https://iili.io/JWZ5Npf.png', null)
+            ]);
+            drawStartScreen();
+        }
+
+        // Sound effects with error handling
+        const sounds = {
+            jump: new Audio('https://assets.mixkit.co/sfx/preview/mixkit-quick-jump-arcade-game-239.mp3'),
+            score: new Audio('https://assets.mixkit.co/sfx/preview/mixkit-achievement-bell-600.mp3'),
+            hit: new Audio('https://assets.mixkit.co/sfx/preview/mixkit-arcade-game-explosion-2759.mp3'),
+            die: new Audio('https://assets.mixkit.co/sfx/preview/mixkit-retro-arcade-lose-2027.mp3')
+        };
+
+        // Bird object
+        const bird = {
+            x: 100,
+            y: 300,
+            width: 40,
+            height: 30,
+            velocity: 0,
+            rotation: 0
+        };
+
+        // Pipes array
+        const pipes = [];
+
+        // Initialize canvas
+        function resizeCanvas() {
+            const container = document.querySelector('.game-container');
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+            bird.y = canvas.height / 2;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // Event listeners
+        startButton.addEventListener('click', startGame);
+        restartButton.addEventListener('click', startGame);
+        canvas.addEventListener('click', handleJump);
+        canvas.addEventListener('touchstart', handleJump);
+        document.addEventListener('keydown', (e) => {
+            if (['Space', ' ', 'ArrowUp'].includes(e.code || e.key)) handleJump(e);
+        });
+
+        // Game functions
+        function handleJump(e) {
+            e.preventDefault();
+            if (gameRunning) birdJump();
+            else if (!gameStarted) startGame();
+        }
+
+        function birdJump() {
+            bird.velocity = JUMP_FORCE;
+            bird.rotation = -20;
+            playSound('jump');
+            gravityDelayCounter = 0; // Reset delay if player jumps early
+        }
+
+        function playSound(type) {
+            try {
+                sounds[type].currentTime = 0;
+                sounds[type].play();
+            } catch (e) {
+                console.log('Sound error:', e);
+            }
+        }
+
+        function startGame() {
+            gameStarted = true;
+            gameRunning = true;
+            score = 0;
+            bird.y = canvas.height / 2;
+            bird.velocity = 0;
+            bird.rotation = 0;
+            pipes.length = [];
+            lastPipeTime = 0;
+            groundOffset = 0;
+            gravityDelayCounter = GRAVITY_DELAY;
+            currentPipeSpeed = BASE_PIPE_SPEED; // Reset speed
+            medalContainer.innerHTML = '';
+            
+            startScreen.style.display = 'none';
+            gameOverScreen.style.display = 'none';
+            
+            // Show banner ad
+            if (typeof sdk !== 'undefined' && sdk.showBanner) {
+                sdk.showBanner();
+            }
+            
+            if (animationId) cancelAnimationFrame(animationId);
+            gameLoop();
+        }
+
+        function gameLoop(timestamp) {
+            if (!gameRunning) return;
+            
+            animationId = requestAnimationFrame(gameLoop);
+            
+            // Gradually increase speed
+            if (currentPipeSpeed < MAX_PIPE_SPEED) {
+                currentPipeSpeed += SPEED_INCREASE_RATE;
+            }
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw background
+            if (images.background.complete) {
+                ctx.drawImage(images.background, 0, 0, canvas.width, canvas.height);
+            } else {
+                ctx.fillStyle = images.background.fallbackColor || '#70c5ce';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+            
+            // Update and draw pipes
+            updatePipes(timestamp);
+            drawPipes();
+            
+            // Update and draw bird
+            updateBird();
+            drawBird();
+            
+            // Draw ground
+            drawGround();
+            
+            // Check collisions
+            if (checkCollisions()) {
+                gameOver();
+                return;
+            }
+            
+            // Update score
+            currentScoreElement.textContent = score;
+            highScoreElement.textContent = highScore;
+        }
+
+        function updateBird() {
+            // Only apply gravity after the delay period
+            if (gravityDelayCounter > 0) {
+                gravityDelayCounter--;
+                // Add a little wing flap animation during delay
+                bird.rotation = Math.sin(Date.now() / 100) * 5;
+            } else {
+                bird.velocity += GRAVITY;
+                bird.rotation = Math.min(30, bird.rotation + 1);
+            }
+            
+            bird.y += bird.velocity;
+            
+            if (bird.y - bird.height / 2 < 0) {
+                bird.y = bird.height / 2;
+                bird.velocity = 0;
+            }
+        }
+
+        function drawBird() {
+            ctx.save();
+            ctx.translate(bird.x, bird.y);
+            ctx.rotate(bird.rotation * Math.PI / 180);
+            
+            if (images.bird.complete) {
+                ctx.drawImage(images.bird, -bird.width / 2, -bird.height / 2, bird.width, bird.height);
+            } else {
+                ctx.fillStyle = images.bird.fallbackColor || '#ffd700';
+                ctx.beginPath();
+                ctx.ellipse(0, 0, bird.width / 2, bird.height / 2, 0, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
+            ctx.restore();
+        }
+
+        function updatePipes(timestamp) {
+            if (timestamp - lastPipeTime > PIPE_FREQUENCY) {
+                const minHeight = 50;
+                const maxHeight = canvas.height - PIPE_GAP - minHeight - GROUND_HEIGHT;
+                const pipeHeight = Math.floor(Math.random() * (maxHeight - minHeight)) + minHeight;
+                
+                pipes.push({
+                    x: canvas.width,
+                    topHeight: pipeHeight,
+                    bottomY: pipeHeight + PIPE_GAP,
+                    passed: false
+                });
+                lastPipeTime = timestamp;
+            }
+            
+            for (let i = pipes.length - 1; i >= 0; i--) {
+                pipes[i].x -= currentPipeSpeed; // Use current speed that increases over time
+                
+                if (!pipes[i].passed && pipes[i].x + PIPE_WIDTH < bird.x) {
+                    pipes[i].passed = true;
+                    score++;
+                    playSound('score');
+                }
+                
+                if (pipes[i].x + PIPE_WIDTH < 0) {
+                    pipes.splice(i, 1);
+                }
+            }
+        }
+
+        function drawPipes() {
+            for (const pipe of pipes) {
+                // Top pipe
+                if (images.pipeTop.complete) {
+                    ctx.save();
+                    ctx.translate(pipe.x, pipe.topHeight);
+                    ctx.scale(1, -1);
+                    ctx.drawImage(images.pipeTop, 0, 0, PIPE_WIDTH, pipe.topHeight);
+                    ctx.restore();
+                } else {
+                    ctx.fillStyle = images.pipeTop.fallbackColor || '#4CAF50';
+                    ctx.fillRect(pipe.x, 0, PIPE_WIDTH, pipe.topHeight);
+                }
+                
+                // Bottom pipe
+                if (images.pipeBottom.complete) {
+                    ctx.drawImage(images.pipeBottom, pipe.x, pipe.bottomY, PIPE_WIDTH, canvas.height - pipe.bottomY - GROUND_HEIGHT);
+                } else {
+                    ctx.fillStyle = images.pipeBottom.fallbackColor || '#4CAF50';
+                    ctx.fillRect(pipe.x, pipe.bottomY, PIPE_WIDTH, canvas.height - pipe.bottomY - GROUND_HEIGHT);
+                }
+            }
+        }
+
+        function drawGround() {
+            if (images.ground.complete) {
+                const patternWidth = images.ground.width;
+                groundOffset = (groundOffset + currentPipeSpeed) % patternWidth;
+                
+                for (let x = -patternWidth + groundOffset; x < canvas.width; x += patternWidth) {
+                    ctx.drawImage(images.ground, x, canvas.height - GROUND_HEIGHT, patternWidth, GROUND_HEIGHT);
+                }
+            } else {
+                ctx.fillStyle = images.ground.fallbackColor || '#8B4513';
+                ctx.fillRect(0, canvas.height - GROUND_HEIGHT, canvas.width, GROUND_HEIGHT);
+            }
+        }
+
+        function checkCollisions() {
+            // Ground collision
+            if (bird.y + bird.height / 2 > canvas.height - GROUND_HEIGHT) {
+                playSound('hit');
+                return true;
+            }
+            
+            // Pipe collisions
+            for (const pipe of pipes) {
+                if (bird.x + bird.width / 2 > pipe.x &&
+                    bird.x - bird.width / 2 < pipe.x + PIPE_WIDTH &&
+                    (bird.y - bird.height / 2 < pipe.topHeight ||
+                     bird.y + bird.height / 2 > pipe.bottomY)) {
+                    playSound('hit');
+                    return true;
+                }
+            }
+            
+            return false;
+        }
+
+        function showMedal() {
+            if (score >= 20) {
+                const medalImg = document.createElement('img');
+                if (score >= 50 && images.medalGold.complete) {
+                    medalImg.src = images.medalGold.src;
+                } else if (score >= 30 && images.medalSilver.complete) {
+                    medalImg.src = images.medalSilver.src;
+                } else if (images.medalBronze.complete) {
+                    medalImg.src = images.medalBronze.src;
+                }
+                if (medalImg.src) {
+                    medalContainer.appendChild(medalImg);
+                }
+            }
+        }
+
+        function gameOver() {
+            gameRunning = false;
+            gameStarted = false;
+            cancelAnimationFrame(animationId);
+            
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('flappyHighScore', highScore);
+            }
+            
+            showMedal();
+            finalScoreElement.textContent = score;
+            playSound('die');
+            gameOverScreen.style.display = 'flex';
+            
+            // Show interstitial every 2 games
+            if (adCounter % 2 === 0 && typeof sdk !== 'undefined' && sdk.showInterstitial) {
+                sdk.showInterstitial();
+            }
+            adCounter++;
+            
+            // Show banner
+            if (typeof sdk !== 'undefined' && sdk.showBanner) {
+                sdk.showBanner();
+            }
+        }
+
+        // Initialize game
+        window.onload = function() {
+            resizeCanvas();
+            // Show loading message
+            ctx.fillStyle = '#70c5ce';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#fff';
+            ctx.font = '30px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('Loading...', canvas.width/2, canvas.height/2);
+            
+            // Load all images and start game
+            loadAllImages();
+        };
+
+        function drawStartScreen() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            if (images.background.complete) {
+                ctx.drawImage(images.background, 0, 0, canvas.width, canvas.height);
+            } else {
+                ctx.fillStyle = images.background.fallbackColor || '#70c5ce';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+            
+            startScreen.style.display = 'flex';
+            
+            // Show banner ad
+            if (typeof sdk !== 'undefined' && sdk.showBanner) {
+                sdk.showBanner();
+            }
+        }
+    </script>
+</body>
+</html>
