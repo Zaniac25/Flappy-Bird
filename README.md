@@ -1,0 +1,1 @@
+A responsive and mobile-friendly clone of the classic Flappy Bird game built with HTML5, CSS3, and vanilla JavaScript.
