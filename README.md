@@ -22,6 +22,14 @@ flappy-bird-clone/
 └── README.md
 ```
 
+
 # Clone the repo
 git clone https://github.com/Zaniac25/flappy-bird-clone.git
+```
+git clone <repo-url>
+cd flappy-bird-clone
+```
+# Open index.html - no server required
+live-server . # or any local server
+
 
